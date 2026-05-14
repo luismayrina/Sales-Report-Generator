@@ -3,21 +3,14 @@ from PySide6.QtWidgets import QWidget, QFrame, QVBoxLayout, QHBoxLayout, QLabel
 class ValidationChecklist(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setObjectName("ValidationChecklist")
-        self.setStyleSheet("""
-            QFrame#ValidationChecklist {
-                background-color: #FFFFFF;
-                border: 1px solid #E5E7EB;
-                border-radius: 8px;
-            }
-        """)
+        self.setObjectName("card")
         
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(20, 20, 20, 20)
         self.main_layout.setSpacing(15)
         
         title = QLabel("Required Files")
-        title.setStyleSheet("font-weight: 600; font-size: 16px; color: #111827; padding-bottom: 4px;")
+        title.setObjectName("cardTitle")
         self.main_layout.addWidget(title)
         
         # Store items by key for easy updating
@@ -44,11 +37,11 @@ class ValidationChecklist(QFrame):
         text_vbox.setSpacing(4)
         
         name_lbl = QLabel(name)
-        name_lbl.setStyleSheet("font-size: 13px; font-weight: 500; color: #374151;")
+        # Inherits default text color from QWidget
         name_lbl.setWordWrap(True)
         
         status_lbl = QLabel("Missing")
-        status_lbl.setStyleSheet("font-size: 11px; color: #F59E0B;") # Amber warning
+        status_lbl.setObjectName("statusWarning")
         status_lbl.setWordWrap(True)
         
         text_vbox.addWidget(name_lbl)
@@ -73,15 +66,19 @@ class ValidationChecklist(QFrame):
         if status == "Valid":
             item["icon"].setText("✅")
             item["status"].setText("Ready")
-            item["status"].setStyleSheet("font-size: 11px; color: #16A34A;") # Green
+            item["status"].setObjectName("statusReady")
         elif status == "Invalid":
             item["icon"].setText("❌")
             item["status"].setText("Invalid file type")
-            item["status"].setStyleSheet("font-size: 11px; color: #DC2626;") # Red
+            item["status"].setObjectName("statusMissing")
         else: # Empty
             item["icon"].setText("⚠️")
             item["status"].setText("Missing")
-            item["status"].setStyleSheet("font-size: 11px; color: #F59E0B;") # Amber
+            item["status"].setObjectName("statusWarning")
+            
+        # Force style update
+        item["status"].style().unpolish(item["status"])
+        item["status"].style().polish(item["status"])
             
     def all_valid(self):
         return all(item["status"].text() == "Ready" for item in self.items.values())

@@ -2,10 +2,11 @@ import os
 import sys
 import subprocess
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-    QScrollArea, QPushButton, QMessageBox, QLabel
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QScrollArea, QPushButton, QMessageBox, QLabel, QApplication
 )
 from PySide6.QtCore import Qt
+from ui.theme import get_stylesheet, load_theme_preference, save_theme_preference
 
 # Import core logic
 from core.report_generator import generate_full_report
@@ -73,20 +74,12 @@ class WorkerThread(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Sales Report Generator (Redesign V2)")
+        self.setWindowTitle("Sales Report Generator")
         self.setMinimumSize(1100, 720)
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: #F6F7F9;
-            }
-            QScrollArea {
-                border: none;
-                background-color: transparent;
-            }
-            QScrollArea > QWidget > QWidget {
-                background-color: transparent;
-            }
-        """)
+
+        # Load and apply saved theme preference
+        self._theme = load_theme_preference()
+        QApplication.instance().setStyleSheet(get_stylesheet(self._theme))
 
         # Main Central Widget
         central = QWidget()
@@ -95,19 +88,36 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # Header
+        # ── Header ──────────────────────────────────────────────────────────
         header = QWidget()
-        header.setStyleSheet("background-color: #FFFFFF; border-bottom: 1px solid #E5E7EB;")
-        header_layout = QVBoxLayout(header)
-        header_layout.setContentsMargins(30, 20, 30, 20)
-        
+        header.setObjectName("header")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(30, 18, 24, 18)
+        header_layout.setSpacing(0)
+
+        # Left: title + subtitle
+        header_text = QWidget()
+        header_text_layout = QVBoxLayout(header_text)
+        header_text_layout.setContentsMargins(0, 0, 0, 0)
+        header_text_layout.setSpacing(2)
+
         title = QLabel("Sales Report Generator")
-        title.setStyleSheet("font-size: 24px; font-weight: bold; color: #111827;")
-        subtitle = QLabel("Generate consolidated Shopify, Shopee, and Lazada sales reports from uploaded CSV and Excel files.")
-        subtitle.setStyleSheet("font-size: 14px; color: #6B7280;")
-        
-        header_layout.addWidget(title)
-        header_layout.addWidget(subtitle)
+        title.setObjectName("headerTitle")
+        subtitle = QLabel("Generate consolidated Shopify, Shopee, and Lazada sales reports.")
+        subtitle.setObjectName("headerSubtitle")
+        header_text_layout.addWidget(title)
+        header_text_layout.addWidget(subtitle)
+        header_layout.addWidget(header_text, stretch=1)
+
+        # Right: theme toggle button
+        self.btn_theme = QPushButton()
+        self.btn_theme.setObjectName("themeToggle")
+        self.btn_theme.setCursor(Qt.PointingHandCursor)
+        self.btn_theme.setFixedHeight(32)
+        self._update_theme_button_label()
+        self.btn_theme.clicked.connect(self._toggle_theme)
+        header_layout.addWidget(self.btn_theme, alignment=Qt.AlignVCenter)
+
         main_layout.addWidget(header)
 
         # Content Area (Two Columns)
@@ -206,6 +216,19 @@ class MainWindow(QMainWindow):
             slot.file_changed.connect(self.on_file_changed)
 
         self.last_output_path = None
+
+    # ── Theme helpers ────────────────────────────────────────────────────────
+    def _update_theme_button_label(self):
+        if self._theme == "dark":
+            self.btn_theme.setText("☀ Light Mode")
+        else:
+            self.btn_theme.setText("🌙 Dark Mode")
+
+    def _toggle_theme(self):
+        self._theme = "dark" if self._theme == "light" else "light"
+        save_theme_preference(self._theme)
+        QApplication.instance().setStyleSheet(get_stylesheet(self._theme))
+        self._update_theme_button_label()
 
     def on_file_changed(self, key, path, status):
         self.file_paths[key] = path

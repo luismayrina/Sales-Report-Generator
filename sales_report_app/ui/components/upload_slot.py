@@ -22,12 +22,12 @@ class UploadSlot(QWidget):
         
         # Helper text above the slot
         self.helper_label = QLabel(helper_text)
-        self.helper_label.setStyleSheet("color: #6B7280; font-size: 12px;")
+        self.helper_label.setObjectName("uploadSlotHint")
         self.main_layout.addWidget(self.helper_label)
         
         # The interactive drop zone box
         self.drop_zone = QWidget()
-        self.drop_zone.setObjectName("dropZone")
+        self.drop_zone.setObjectName("uploadSlot")
         self.drop_zone_layout = QHBoxLayout(self.drop_zone)
         self.drop_zone_layout.setContentsMargins(15, 15, 15, 15)
         
@@ -38,11 +38,11 @@ class UploadSlot(QWidget):
         # Text area
         self.text_layout = QVBoxLayout()
         self.title_label = QLabel("Drop file here or browse")
-        self.title_label.setStyleSheet("font-weight: bold; color: #111827; font-size: 13px;")
+        self.title_label.setObjectName("uploadSlotLabel")
         self.title_label.setWordWrap(True)
         
         self.path_label = QLabel(label_text)
-        self.path_label.setStyleSheet("color: #6B7280; font-size: 11px;")
+        self.path_label.setObjectName("uploadSlotHint")
         self.path_label.setWordWrap(True)
         
         self.text_layout.addWidget(self.title_label)
@@ -81,12 +81,16 @@ class UploadSlot(QWidget):
             self.status = "Invalid"
             self.status_icon.setText("❌")
             self.title_label.setText(f"Invalid file: {filename}")
-            self.title_label.setStyleSheet("font-weight: bold; color: #DC2626; font-size: 13px;")
+            self.title_label.setObjectName("statusMissing")
+            self.title_label.style().unpolish(self.title_label)
+            self.title_label.style().polish(self.title_label)
         else:
             self.status = "Valid"
             self.status_icon.setText("✅")
             self.title_label.setText(filename)
-            self.title_label.setStyleSheet("font-weight: bold; color: #16A34A; font-size: 13px;")
+            self.title_label.setObjectName("statusReady")
+            self.title_label.style().unpolish(self.title_label)
+            self.title_label.style().polish(self.title_label)
             
         self.path_label.setText(path)
         self.btn_browse.setText("Change")
@@ -105,7 +109,9 @@ class UploadSlot(QWidget):
         self.status = "Empty"
         self.status_icon.setText("📁")
         self.title_label.setText("Drop file here or browse")
-        self.title_label.setStyleSheet("font-weight: bold; color: #111827; font-size: 13px;")
+        self.title_label.setObjectName("uploadSlotLabel")
+        self.title_label.style().unpolish(self.title_label)
+        self.title_label.style().polish(self.title_label)
         self.path_label.setText(self.helper_label.text()) # Reset to helper text
         self.btn_browse.setText("Browse")
         self.btn_remove.hide()
@@ -114,39 +120,19 @@ class UploadSlot(QWidget):
         self.file_changed.emit(self.key, self.current_path, self.status)
 
     def update_style(self):
-        base_style = """
-            QWidget#dropZone {
-                background-color: #FAFAFA;
-                border-radius: 6px;
-            }
-            QPushButton {
-                background-color: #FFFFFF;
-                border: 1px solid #D1D5DB;
-                border-radius: 4px;
-                padding: 4px 10px;
-                color: #374151;
-                font-size: 12px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #F3F4F6;
-            }
-        """
-        
         if self.status == "Empty":
-            border = "border: 1px dashed #9CA3AF;"
+            self.drop_zone.setStyleSheet("")
         elif self.status == "Valid":
-            border = "border: 1px solid #16A34A; background-color: #F0FDF4;"
+            # Just force the border and background dynamically, overriding theme
+            self.drop_zone.setStyleSheet("QWidget#uploadSlot { border: 1px solid #16A34A; background-color: rgba(22, 163, 74, 0.05); border-radius: 8px; }")
         elif self.status == "Invalid":
-            border = "border: 1px solid #DC2626; background-color: #FEF2F2;"
-            
-        self.drop_zone.setStyleSheet(base_style.replace("border-radius: 6px;", f"border-radius: 6px;\n{border}"))
+            self.drop_zone.setStyleSheet("QWidget#uploadSlot { border: 1px solid #DC2626; background-color: rgba(220, 38, 38, 0.05); border-radius: 8px; }")
 
     # Drag and Drop events
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
-            self.drop_zone.setStyleSheet(self.drop_zone.styleSheet() + "QWidget#dropZone { border: 2px dashed #2563EB; background-color: #EFF6FF; }")
+            self.drop_zone.setStyleSheet("QWidget#uploadSlot { border: 2px dashed #2563EB; background-color: rgba(59, 130, 246, 0.05); border-radius: 8px; }")
 
     def dragLeaveEvent(self, event):
         self.update_style()

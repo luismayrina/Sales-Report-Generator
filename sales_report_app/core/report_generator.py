@@ -242,6 +242,22 @@ def write_offtake_summary(ws_out, ws_sample, all_orders, logger=None):
         if nu == "ECOMMERCE":
             ecommerce_row = i
 
+    # ── Step 5.5: Clear ALL app-calculated cells for every channel row ────────
+    # This ensures JAN/FEB template values and physical store stale values
+    # (Common Room, Frankie and Friends, etc.) do not persist in the output.
+    # We ONLY preserve: Target (col +2), PY (col +3), labels (col A), and styling.
+    APP_CALC_OFFSETS = [0, 1, 4, 6, 7, 9]  # %cont, actual, vs_PY, YTD_%cont, YTD, YTD_vs_PY
+    for ch_name, ridx in channel_row_map.items():
+        if ch_name.upper() in SKIP_ROWS:
+            continue
+        for sec in all_sections.values():
+            for offset in APP_CALC_OFFSETS:
+                col = sec["section_start"] + offset
+                # Must assign to .value directly — passing value=None to .cell() is a no-op in openpyxl
+                ws_out.cell(row=ridx, column=col).value = None
+        if ch_name not in ONLINE_CHANNELS:
+            log(f"No generated sales data for '{ch_name}'; cleared app-calculated cells.")
+
     # ── Step 6: Calculate monthly totals per online channel ─────────────────
     channel_monthly = defaultdict(lambda: defaultdict(float))
     for o in all_orders:
@@ -341,6 +357,21 @@ def write_offtake_summary(ws_out, ws_sample, all_orders, logger=None):
             f"Created new blocks up to {MONTH_NAMES[latest_sales_month-1]}.")
     log(f"Offtake Report Summary complete. Months populated: "
         f"{[MONTH_NAMES[m-1] for m in sorted_months if m in sales_months or m in template_month_sections]}")
+
+    # ── Step 11: Auto-set column widths to prevent ##### display ─────────────
+    # Currency columns (actual, target, YTD) → min 16; % cont → min 10
+    for sec in all_sections.values():
+        currency_cols = [sec["actual_col"], sec["target_col"], sec["ytd_col"]]
+        pct_cols = [sec["pct_cont_col"], sec["ytd_pct_col"]]
+        for col in currency_cols:
+            letter = ws_out.cell(1, col).column_letter
+            cur = ws_out.column_dimensions[letter].width or 0
+            ws_out.column_dimensions[letter].width = max(cur, 16)
+        for col in pct_cols:
+            letter = ws_out.cell(1, col).column_letter
+            cur = ws_out.column_dimensions[letter].width or 0
+            ws_out.column_dimensions[letter].width = max(cur, 10)
+    log("Column widths adjusted to prevent ##### display.")
 
 
 
