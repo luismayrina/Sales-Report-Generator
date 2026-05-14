@@ -38,7 +38,9 @@ def normalize_sku(name):
         "serene sanctuary": "Serene Sanctuary Reed Diffuser",
         "urban oasis": "Urban Oasis Reed Diffuser",
     }
-    for key, val in mapping.items():
+    # Sort mapping keys by length (longest first) to prevent shorter strings from incorrectly capturing longer ones
+    sorted_mapping = sorted(mapping.items(), key=lambda x: len(x[0]), reverse=True)
+    for key, val in sorted_mapping:
         if key in n:
             return val
     return name.strip()
@@ -67,6 +69,6 @@ def match_sku(normalized_name, valid_skus):
     Returns the valid SKU if matched, otherwise returns None.
     """
     for known_sku in valid_skus:
-        if known_sku.lower() in normalized_name.lower() or normalized_name.lower() in known_sku.lower():
+        if known_sku.lower() == normalized_name.lower():
             return known_sku
     return None

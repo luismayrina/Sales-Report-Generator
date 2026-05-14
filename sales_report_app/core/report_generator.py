@@ -379,7 +379,7 @@ def write_offtake_summary(ws_out, ws_sample, all_orders, logger=None):
 
 
 # ── SHEET 4: OFFTAKE PER SKU ─────────────────────────────────────────────────
-def write_offtake_per_sku(ws_out, ws_sample, all_orders, valid_skus, unmapped_log):
+def write_offtake_per_sku(ws_out, ws_sample, all_orders, valid_skus):
     for i, row in enumerate(ws_sample.iter_rows(values_only=True), 1):
         for j, val in enumerate(row, 1):
             ws_out.cell(row=i, column=j, value=val)
@@ -411,43 +411,32 @@ def write_offtake_per_sku(ws_out, ws_sample, all_orders, valid_skus, unmapped_lo
         
         for (item_name, qty, price) in o.get("items", []):
             normalized = normalize_sku(item_name)
-            matched_sku = match_sku(normalized, valid_skus)
-            
-            if matched_sku:
-                sku_qty[matched_sku][month] += qty
-            else:
-                # Log unmapped SKU
-                unmapped_log.append({
-                    "Platform": o["source"],
-                    "Order No": o["order_no"],
-                    "Raw Name": item_name,
-                    "Normalized": normalized,
-                    "Qty": qty,
-                    "Date": dt.strftime("%Y-%m-%d")
-                })
+            matched_sku = match_sku(normalized, valid_skus) or normalized
+            sku_qty[matched_sku][month] += qty
+
+    last_row_idx = max(sku_row.values()) if sku_row else hdr_row + 1
 
     for sku, month_data in sku_qty.items():
         row_idx = sku_row.get(sku)
-        if not row_idx: continue
+        if not row_idx:
+            # Dynamically create new row for unmapped/new SKU
+            last_row_idx += 1
+            row_idx = last_row_idx
+            sku_row[sku] = row_idx
+            ws_out.cell(row=row_idx, column=1, value=sku)
+            
+            # Copy styling from the row above to maintain template appearance
+            if last_row_idx > hdr_row + 1:
+                for col in range(1, ws_out.max_column + 1):
+                    src_cell = ws_out.cell(row=last_row_idx - 1, column=col)
+                    dst_cell = ws_out.cell(row=row_idx, column=col)
+                    copy_style(src_cell, dst_cell)
+                    
         for month, qty in month_data.items():
             col_idx = month_col.get(month)
             if col_idx:
                 existing = ws_out.cell(row=row_idx, column=col_idx).value
                 ws_out.cell(row=row_idx, column=col_idx, value=(existing or 0) + qty)
-
-# ── SHEET 5: UNMAPPED SKUS ───────────────────────────────────────────────────
-def write_unmapped_skus(ws_out, unmapped_log):
-    headers = ["Platform", "Order No", "Date", "Raw Name", "Normalized", "Qty"]
-    for j, h in enumerate(headers, 1):
-        ws_out.cell(row=1, column=j, value=h)
-    
-    for i, log in enumerate(unmapped_log, 2):
-        ws_out.cell(row=i, column=1, value=log["Platform"])
-        ws_out.cell(row=i, column=2, value=log["Order No"])
-        ws_out.cell(row=i, column=3, value=log["Date"])
-        ws_out.cell(row=i, column=4, value=log["Raw Name"])
-        ws_out.cell(row=i, column=5, value=log["Normalized"])
-        ws_out.cell(row=i, column=6, value=log["Qty"])
 
 
 # ── MAIN GENERATOR ───────────────────────────────────────────────────────────
@@ -456,7 +445,6 @@ def generate_full_report(all_orders, template_path, output_path, logger=None):
     wb_sample = load_workbook(template_path)
     
     valid_skus = extract_valid_skus_from_template(wb_sample["Offtake Report Summary per sku"])
-    unmapped_log = []
 
     wb_out = openpyxl.Workbook()
 
@@ -475,12 +463,7 @@ def generate_full_report(all_orders, template_path, output_path, logger=None):
 
     if logger: logger("Generating Offtake Report Summary per sku...")
     ws4 = wb_out.create_sheet("Offtake Report Summary per sku")
-    write_offtake_per_sku(ws4, wb_sample["Offtake Report Summary per sku"], all_orders, valid_skus, unmapped_log)
-    
-    if unmapped_log:
-        if logger: logger(f"Found {len(unmapped_log)} unmapped SKU entries. Creating 'Unmapped SKUs' sheet...")
-        ws5 = wb_out.create_sheet("Unmapped SKUs")
-        write_unmapped_skus(ws5, unmapped_log)
+    write_offtake_per_sku(ws4, wb_sample["Offtake Report Summary per sku"], all_orders, valid_skus)
 
     if logger: logger(f"Saving output to {output_path}...")
     try:

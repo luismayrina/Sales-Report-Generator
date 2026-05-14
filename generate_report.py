@@ -123,7 +123,9 @@ def normalize_sku(name):
         "serene sanctuary": "Serene Sanctuary Reed Diffuser",
         "urban oasis": "Urban Oasis Reed Diffuser",
     }
-    for key, val in mapping.items():
+    # Sort mapping keys by length (longest first) to prevent shorter strings from incorrectly capturing longer ones
+    sorted_mapping = sorted(mapping.items(), key=lambda x: len(x[0]), reverse=True)
+    for key, val in sorted_mapping:
         if key in n:
             return val
     return name.strip()
@@ -471,26 +473,33 @@ def write_offtake_per_sku(ws_out, ws_sample, all_orders):
             # Try to find a match in sku_row
             matched = None
             for known_sku in sku_row:
-                if known_sku.lower() in sku.lower() or sku.lower() in known_sku.lower():
+                if known_sku.lower() == sku.lower():
                     matched = known_sku
                     break
-            if matched:
-                sku_qty[matched][month] += qty
-            else:
-                # Store under original normalized name
-                sku_qty[sku][month] += qty
+            
+            matched = matched or sku
+            sku_qty[matched][month] += qty
+
+    # Write quantities
+    last_row_idx = max(sku_row.values()) if sku_row else hdr_row + 1
 
     # Write quantities
     for sku, month_data in sku_qty.items():
         row_idx = sku_row.get(sku)
         if not row_idx:
-            # Find closest match
-            for known in sku_row:
-                if sku.lower() in known.lower() or known.lower() in sku.lower():
-                    row_idx = sku_row[known]
-                    break
-        if not row_idx:
-            continue
+            # Dynamically create new row
+            last_row_idx += 1
+            row_idx = last_row_idx
+            sku_row[sku] = row_idx
+            ws_out.cell(row=row_idx, column=1, value=sku)
+            # Copy styles
+            if last_row_idx > hdr_row + 1:
+                from sales_report_app.core.workbook_utils import copy_style
+                for col in range(1, ws_out.max_column + 1):
+                    src_cell = ws_out.cell(row=last_row_idx - 1, column=col)
+                    dst_cell = ws_out.cell(row=row_idx, column=col)
+                    copy_style(src_cell, dst_cell)
+                    
         for month, qty in month_data.items():
             col_idx = month_col.get(month)
             if col_idx:
