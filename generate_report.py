@@ -510,73 +510,101 @@ def write_offtake_per_sku(ws_out, ws_sample, all_orders):
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 def main():
+    import glob
+    import re
+    from sales_report_app.core.physical_parser import load_physical_channels, load_py_data
+    from sales_report_app.core.report_generator import generate_full_report
+
     print("📂  Loading Shopify transactions …")
-    txns = load_shopify_transactions(os.path.join(BASE_DIR, TRANSACTIONS_CSV))
+    txn_path = os.path.join(BASE_DIR, TRANSACTIONS_CSV)
+    if not os.path.exists(txn_path): txn_path = os.path.join(BASE_DIR, "docs", TRANSACTIONS_CSV)
+    txns = load_shopify_transactions(txn_path)
     print(f"    {len(txns)} transaction records")
 
     print("📂  Loading Shopify orders …")
-    shopify_orders = load_shopify_orders(os.path.join(BASE_DIR, ORDERS_CSV), txns)
-    shopify_items  = load_shopify_items(os.path.join(BASE_DIR, ORDERS_CSV))
+    orders_path = os.path.join(BASE_DIR, ORDERS_CSV)
+    if not os.path.exists(orders_path): orders_path = os.path.join(BASE_DIR, "docs", ORDERS_CSV)
+    shopify_orders = load_shopify_orders(orders_path, txns)
+    shopify_items  = load_shopify_items(orders_path)
     for o in shopify_orders:
         o["items"] = shopify_items.get(o["order_no"], [])
     print(f"    {len(shopify_orders)} orders")
 
     print("📂  Loading Shopee transactions …")
-    shopee_orders = load_shopee(os.path.join(BASE_DIR, SHOPEE_XLSX))
+    shopee_path = os.path.join(BASE_DIR, SHOPEE_XLSX)
+    if not os.path.exists(shopee_path): shopee_path = os.path.join(BASE_DIR, "docs", SHOPEE_XLSX)
+    shopee_orders = load_shopee(shopee_path)
     print(f"    {len(shopee_orders)} orders ({sum(1 for o in shopee_orders if o['status']!='cancelled')} active)")
 
     print("📂  Loading Lazada transactions …")
-    lazada_orders = load_lazada(os.path.join(BASE_DIR, LAZADA_XLSX))
+    lazada_path = os.path.join(BASE_DIR, LAZADA_XLSX)
+    if not os.path.exists(lazada_path): lazada_path = os.path.join(BASE_DIR, "docs", LAZADA_XLSX)
+    lazada_orders = load_lazada(lazada_path)
     print(f"    {len(lazada_orders)} orders")
 
-    all_orders = shopify_orders + shopee_orders + lazada_orders
+    # Find the OFFTAKE REPORT dynamically
+    offtake_xlsx = None
+    search_paths = [os.path.join(BASE_DIR, "docs", "*OFFTAKE REPORT.xlsx"), os.path.join(BASE_DIR, "*OFFTAKE REPORT.xlsx")]
+    for path_pattern in search_paths:
+        matches = glob.glob(path_pattern)
+        if matches:
+            # Prefer the exact match if there are multiple, or just take the first
+            offtake_xlsx = matches[0]
+            break
+            
+    if not offtake_xlsx:
+        print("❌ Error: Could not find any file ending with 'OFFTAKE REPORT.xlsx' in docs/ or root.")
+        return
+
+    # Extract the current year from the filename
+    offtake_filename = os.path.basename(offtake_xlsx)
+    match = re.search(r'(20\d{2})', offtake_filename)
+    current_year = int(match.group(1)) if match else 2026
+    py_year = current_year - 1
+
+    print(f"📂  Loading Offtake Report ({offtake_filename})...")
+    print(f"📅  Detected Reporting Year: {current_year} (PY: {py_year})")
+    
+    physical_orders = load_physical_channels(offtake_xlsx, current_year=current_year)
+    py_data = load_py_data(offtake_xlsx, py_year=py_year)
+
+    all_orders = shopify_orders + shopee_orders + lazada_orders + physical_orders
     print(f"\n📊  Total combined orders: {len(all_orders)}")
 
-    print("📖  Loading sample workbook for formatting …")
-    wb_sample = load_workbook(os.path.join(BASE_DIR, SAMPLE_XLSX))
-
+    template_path = os.path.join(BASE_DIR, SAMPLE_XLSX)
+    output_path = os.path.join(BASE_DIR, OUTPUT_XLSX)
+    
     print("💾  Building output workbook …")
-    wb_out = openpyxl.Workbook()
+    success, result_path = generate_full_report(
+        all_orders=all_orders,
+        template_path=template_path,
+        output_path=output_path,
+        py_data=py_data,
+        current_year=current_year,
+        logger=print
+    )
 
-    # ── Sheet 1: Daily Sales Summary ──
-    ws1 = wb_out.active
-    ws1.title = "Daily Sales Summary"
-    write_daily_sales(ws1, wb_sample["Daily Sales Summary "], all_orders)
-    print("    ✓ Daily Sales Summary")
-
-    # ── Sheet 2: Real Time Inventory ──
-    ws2 = wb_out.create_sheet("Real Time Inventory Report")
-    write_inventory(ws2, wb_sample["Real Time Inventory Report"])
-    print("    ✓ Real Time Inventory Report (template copied)")
-
-    # ── Sheet 3: Offtake Summary ──
-    ws3 = wb_out.create_sheet("Offtake Report Summary")
-    write_offtake_summary(ws3, wb_sample["Offtake Report Summary"], all_orders)
-    print("    ✓ Offtake Report Summary")
-
-    # ── Sheet 4: Offtake per SKU ──
-    ws4 = wb_out.create_sheet("Offtake Report Summary per sku")
-    write_offtake_per_sku(ws4, wb_sample["Offtake Report Summary per sku"], all_orders)
-    print("    ✓ Offtake Report Summary per sku")
-
-    out_path = os.path.join(BASE_DIR, OUTPUT_XLSX)
-    wb_out.save(out_path)
-    print(f"\n✅  Saved → {out_path}")
+    if success:
+        print(f"\n✅  Saved → {result_path}")
+    else:
+        print(f"\n❌  Failed to save report: {result_path}")
 
     # ── Summary Table ──
     print("\n" + "─"*72)
-    print(f"{'Source':<10} {'Orders':>8} {'Paid Total':>14} {'Pending Total':>14}")
+    print(f"{'Source':<15} {'Orders':>8} {'Paid Total':>14} {'Pending Total':>14}")
     print("─"*72)
-    for src in ("Shopify", "Shopee", "Lazada"):
+    
+    unique_sources = sorted(list(set(o["source"] for o in all_orders)))
+    for src in unique_sources:
         grp = [o for o in all_orders if o["source"] == src]
         paid    = sum(o["net"] for o in grp if o["status"] not in ("cancelled","pending") and o.get("net"))
         pending = sum(o["net"] for o in grp if o["status"] == "pending" and o.get("net"))
         n = len(grp)
-        print(f"{src:<10} {n:>8} {paid:>14,.2f} {pending:>14,.2f}")
+        print(f"{src:<15} {n:>8} {paid:>14,.2f} {pending:>14,.2f}")
     print("─"*72)
     total_paid    = sum(o["net"] for o in all_orders if o["status"] not in ("cancelled","pending") and o.get("net"))
     total_pending = sum(o["net"] for o in all_orders if o["status"] == "pending" and o.get("net"))
-    print(f"{'TOTAL':<10} {len(all_orders):>8} {total_paid:>14,.2f} {total_pending:>14,.2f}")
+    print(f"{'TOTAL':<15} {len(all_orders):>8} {total_paid:>14,.2f} {total_pending:>14,.2f}")
     print("─"*72)
 
 

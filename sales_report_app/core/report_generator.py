@@ -3,16 +3,22 @@ from datetime import datetime
 from collections import defaultdict
 import openpyxl
 from openpyxl import load_workbook
+from openpyxl.styles import PatternFill, Font
 
 from .workbook_utils import copy_style
 from .sku_normalizer import normalize_sku, extract_valid_skus_from_template, match_sku
 
 # ── SHEET 1: DAILY SALES SUMMARY ─────────────────────────────────────────────
 def write_daily_sales(ws_out, ws_sample, all_orders):
+    header_fill = PatternFill(start_color="F0F0F0", end_color="F0F0F0", fill_type="solid")
+    alt_fill = PatternFill(start_color="FAFAFA", end_color="FAFAFA", fill_type="solid")
+
     # Copy header row
     for j, cell in enumerate(ws_sample[1], 1):
         dst = ws_out.cell(row=1, column=j, value=cell.value)
         copy_style(cell, dst)
+        dst.fill = header_fill
+        dst.font = Font(bold=True)
 
     # Column widths
     for col_letter, dim in ws_sample.column_dimensions.items():
@@ -53,6 +59,8 @@ def write_daily_sales(ws_out, ws_sample, all_orders):
         ]
         for ci, v in enumerate(vals, 1):
             cell = ws_out.cell(row=ri, column=ci, value=v)
+            if ri % 2 == 0:
+                cell.fill = alt_fill
             if ci == 2 and v:
                 cell.number_format = DATE_FMT
             elif ci == 21 and v:
@@ -124,12 +132,11 @@ def _copy_block_styles(ws, src_start, dst_start, max_row, log):
             dst_cell.value = None
 
 
-def write_offtake_summary(ws_out, ws_sample, all_orders, logger=None):
+def write_offtake_summary(ws_out, ws_sample, all_orders, py_data, latest_sales_month, current_year=2026, logger=None):
     def log(msg):
         if logger:
             logger(msg)
 
-    ONLINE_CHANNELS = {"Shopify", "Shopee", "Lazada"}
     SKIP_ROWS = {"TOTAL WITH INDUSTRIAL", "INDUSTRIAL", "RETAIL", "ECOMMERCE", "TOTAL"}
 
     # ── Step 1: Copy the entire template sheet ──────────────────────────────
@@ -142,6 +149,7 @@ def write_offtake_summary(ws_out, ws_sample, all_orders, logger=None):
     # A section is identified by a datetime value in row 1 (the "actual" col).
     template_month_sections = {}   # month_num -> section dict
     hdr_len = ws_out.max_column
+    hdr_row = 1
     for ci in range(1, hdr_len + 2):
         val = ws_out.cell(1, ci).value
         if isinstance(val, datetime):
@@ -154,27 +162,24 @@ def write_offtake_summary(ws_out, ws_sample, all_orders, logger=None):
         log("WARNING: No month columns found in template. Aborting Offtake Summary generation.")
         return
 
+    # ── Step 5: Detect channel rows (moved up to use in month detection) ────
+    channel_row_map = {}
+    total_row = None
+    for i in range(1, 35):
+        v = ws_out.cell(i, 1).value
+        if v is None:
+            continue
+        name = str(v).strip()
+        if name:
+            channel_row_map[name] = i
+            log(f"Channel row: '{name}' -> row {i}")
+        nu = name.upper()
+        if nu == "TOTAL WITH INDUSTRIAL":
+            total_row = i
+
     # ── Step 3: Determine all months needed from sales data ─────────────────
-    sales_months = set()
-    for o in all_orders:
-        if o["status"] == "cancelled":
-            continue
-        src = o.get("source")
-        if src not in ONLINE_CHANNELS:
-            continue
-        dt = o.get("date")
-        if dt:
-            sales_months.add(dt.month)
-
-    if not sales_months:
-        log("No valid online sales found. Copying template only.")
-        return
-
     # Determine the contiguous range Jan→latest month.
-    # We only create blocks from month 1 up to the latest month with data,
-    # skipping any months earlier than the first template month.
     earliest_template_month = min(template_month_sections.keys())
-    latest_sales_month = max(sales_months)
     log(f"Latest sales month detected: {MONTH_NAMES[latest_sales_month - 1]} (month {latest_sales_month})")
 
     # Months we need to have blocks for (from earliest in template to latest in data)
@@ -182,29 +187,29 @@ def write_offtake_summary(ws_out, ws_sample, all_orders, logger=None):
     log(f"Month blocks needed: {[MONTH_NAMES[m-1] for m in needed_months]}")
 
     # ── Step 4: Create missing month blocks ─────────────────────────────────
-    # Find the last template block to use as a style source for new blocks.
     last_template_month = max(template_month_sections.keys())
     last_section = template_month_sections[last_template_month]
     last_block_start = last_section["section_start"]
-    next_block_start = last_block_start + SECTION_WIDTH  # where the next new block goes
+    next_block_start = last_block_start + SECTION_WIDTH
 
-    all_sections = dict(template_month_sections)   # month_num -> section dict
+    all_sections = dict(template_month_sections)
 
-    max_data_row = max(30, ws_out.max_row)  # limit style copying to data area
+    max_data_row = max(30, ws_out.max_row)
     for month_num in needed_months:
         if month_num in all_sections:
-            continue  # already exists in template
+            continue
         log(f"Creating new month block for {MONTH_NAMES[month_num-1]} at col {next_block_start}")
         _copy_block_styles(ws_out, last_block_start, next_block_start, max_data_row, log)
 
         # Write row-1 header cells for the new block
-        month_dt = datetime(2026, month_num, 1)
         month_abbr = MONTH_NAMES[month_num - 1]
+        insert_col = next_block_start + 1
 
         sec = _build_section(month_num, next_block_start)
-        ws_out.cell(row=1, column=sec["pct_cont_col"],   value="% cont")
-        ws_out.cell(row=1, column=sec["actual_col"],      value=month_dt)
-        ws_out.cell(row=1, column=sec["actual_col"]).number_format = "mmm-yy"
+        # For new blocks, insert the month label exactly as formatted in template.
+        month_dt = datetime(current_year, month_num, 1)
+        ws_out.cell(row=hdr_row, column=insert_col).value = month_dt
+        ws_out.cell(row=hdr_row, column=insert_col).number_format = "MMM-yy"
         ws_out.cell(row=1, column=sec["target_col"],      value="Target")
         ws_out.cell(row=1, column=sec["vs_py_col"],       value="vs PY")
         ws_out.cell(row=1, column=sec["ytd_pct_col"],     value="% cont")
@@ -224,115 +229,124 @@ def write_offtake_summary(ws_out, ws_sample, all_orders, logger=None):
         last_block_start = next_block_start
         next_block_start += SECTION_WIDTH
 
-    # ── Step 5: Detect channel rows ─────────────────────────────────────────
-    channel_row_map = {}
-    total_row = None
-    ecommerce_row = None
-    for i in range(1, 35):
-        v = ws_out.cell(i, 1).value
-        if v is None:
-            continue
-        name = str(v).strip()
-        if name:
-            channel_row_map[name] = i
-            log(f"Channel row: '{name}' -> row {i}")
-        nu = name.upper()
-        if nu == "TOTAL WITH INDUSTRIAL":
-            total_row = i
-        if nu == "ECOMMERCE":
-            ecommerce_row = i
-
-    # ── Step 5.5: Clear ALL app-calculated cells for every channel row ────────
-    # This ensures JAN/FEB template values and physical store stale values
-    # (Common Room, Frankie and Friends, etc.) do not persist in the output.
-    # We ONLY preserve: Target (col +2), PY (col +3), labels (col A), and styling.
-    APP_CALC_OFFSETS = [0, 1, 4, 6, 7, 9]  # %cont, actual, vs_PY, YTD_%cont, YTD, YTD_vs_PY
+    # ── Step 5.5: Clear ALL app-calculated cells ──────────────────────────
+    APP_CALC_OFFSETS = [0, 1, 4, 6, 7, 9]
     for ch_name, ridx in channel_row_map.items():
         if ch_name.upper() in SKIP_ROWS:
             continue
         for sec in all_sections.values():
             for offset in APP_CALC_OFFSETS:
                 col = sec["section_start"] + offset
-                # Must assign to .value directly — passing value=None to .cell() is a no-op in openpyxl
                 ws_out.cell(row=ridx, column=col).value = None
-        if ch_name not in ONLINE_CHANNELS:
-            log(f"No generated sales data for '{ch_name}'; cleared app-calculated cells.")
 
-    # ── Step 6: Calculate monthly totals per online channel ─────────────────
+    # ── Step 6: Calculate monthly totals per channel ────────────────────────
     channel_monthly = defaultdict(lambda: defaultdict(float))
     for o in all_orders:
-        if o["status"] == "cancelled":
-            continue
+        if o["status"] == "cancelled": continue
         src = o.get("source")
-        if src not in ONLINE_CHANNELS:
-            continue
+        if src not in channel_row_map: continue
         dt = o.get("date")
-        if not dt:
-            continue
+        if not dt: continue
         channel_monthly[src][dt.month] += o.get("net") or 0
 
-    for ch, mdata in channel_monthly.items():
-        for m, total in sorted(mdata.items()):
-            log(f"  {ch} {MONTH_NAMES[m-1]}: {total:.2f}")
-
-    # ── Step 7: Write actuals, YTD, vs PY for online channels ───────────────
+    # ── Step 7: Write actuals, YTD, vs PY for all channels ──────────────────
     sorted_months = sorted(all_sections.keys())
 
-    for ch in ONLINE_CHANNELS:
-        ridx = channel_row_map.get(ch)
-        if not ridx:
-            log(f"WARNING: No row for '{ch}'. Skipping.")
-            continue
+    for ch, ridx in channel_row_map.items():
+        if ch.upper() in SKIP_ROWS: continue
         ytd_sum = 0.0
         for month_num in sorted_months:
             sec = all_sections[month_num]
             monthly_val = channel_monthly[ch].get(month_num, 0.0)
             ytd_sum += monthly_val
 
-            # Always overwrite actual & YTD so old template data is cleared
-            ws_out.cell(row=ridx, column=sec["actual_col"],
-                        value=round(monthly_val, 2) if monthly_val else 0)
-            ws_out.cell(row=ridx, column=sec["ytd_col"],
-                        value=round(ytd_sum, 2) if ytd_sum else 0)
-            log(f"  {ch} {MONTH_NAMES[month_num-1]} actual={monthly_val:.2f}  YTD={ytd_sum:.2f}")
+            cell_actual = ws_out.cell(row=ridx, column=sec["actual_col"], value=round(monthly_val, 2) if monthly_val else 0)
+            cell_actual.number_format = "#,##0.00"
+            cell_ytd = ws_out.cell(row=ridx, column=sec["ytd_col"], value=round(ytd_sum, 2) if ytd_sum else 0)
+            cell_ytd.number_format = "#,##0.00"
 
-            # vs PY — use template PY value if it exists
-            py_val = ws_sample.cell(ridx, sec["py_col"]).value if month_num in template_month_sections else None
-            if isinstance(py_val, (int, float)) and py_val:
-                ws_out.cell(row=ridx, column=sec["vs_py_col"],
-                            value=round(monthly_val - py_val, 2))
+            py_val = 0.0
+            if py_data and ch in py_data:
+                py_val = py_data[ch].get(month_num, 0.0)
+            else:
+                py_val_sample = ws_sample.cell(ridx, sec["py_col"]).value if month_num in template_month_sections else None
+                if isinstance(py_val_sample, (int, float)): py_val = py_val_sample
 
-            ytd_py_val = ws_sample.cell(ridx, sec["ytd_py_col"]).value if month_num in template_month_sections else None
-            if isinstance(ytd_py_val, (int, float)) and ytd_py_val:
-                ws_out.cell(row=ridx, column=sec["ytd_vs_py_col"],
-                            value=round(ytd_sum - ytd_py_val, 2))
+            cell_py = ws_out.cell(row=ridx, column=sec["py_col"], value=round(py_val, 2) if py_val else 0)
+            cell_py.number_format = "#,##0.00"
+
+            if py_val:
+                pct_val = (monthly_val - py_val) / py_val
+                cell_vs_py = ws_out.cell(row=ridx, column=sec["vs_py_col"], value=pct_val)
+                cell_vs_py.number_format = "0%"
+                if pct_val > 0:
+                    cell_vs_py.fill = PatternFill(start_color="E6F4EA", end_color="E6F4EA", fill_type="solid")
+                elif pct_val < 0:
+                    cell_vs_py.fill = PatternFill(start_color="FCE8E6", end_color="FCE8E6", fill_type="solid")
+            else: ws_out.cell(row=ridx, column=sec["vs_py_col"]).value = None
+
+            ytd_py_sum = sum(py_data[ch].get(m, 0.0) for m in range(1, month_num + 1)) if py_data and ch in py_data else 0.0
+            cell_ytd_py = ws_out.cell(row=ridx, column=sec["ytd_py_col"], value=round(ytd_py_sum, 2) if ytd_py_sum else 0)
+            cell_ytd_py.number_format = "#,##0.00"
+
+            if ytd_py_sum:
+                ytd_pct_val = (ytd_sum - ytd_py_sum) / ytd_py_sum
+                cell_ytd_vs_py = ws_out.cell(row=ridx, column=sec["ytd_vs_py_col"], value=ytd_pct_val)
+                cell_ytd_vs_py.number_format = "0%"
+                if ytd_pct_val > 0:
+                    cell_ytd_vs_py.fill = PatternFill(start_color="E6F4EA", end_color="E6F4EA", fill_type="solid")
+                elif ytd_pct_val < 0:
+                    cell_ytd_vs_py.fill = PatternFill(start_color="FCE8E6", end_color="FCE8E6", fill_type="solid")
+            else: ws_out.cell(row=ridx, column=sec["ytd_vs_py_col"]).value = None
 
     # ── Step 8: Recalculate TOTAL row ────────────────────────────────────────
-    if total_row:
+    total_rows = [ridx for name, ridx in channel_row_map.items() if "TOTAL" in name.upper()]
+    for t_ridx in total_rows:
         for month_num in sorted_months:
             sec = all_sections[month_num]
-            total_actual = 0.0
-            total_ytd = 0.0
-            for ch_name, ridx in channel_row_map.items():
-                if ch_name.upper() in SKIP_ROWS:
-                    continue
-                v_a = ws_out.cell(ridx, sec["actual_col"]).value
-                v_y = ws_out.cell(ridx, sec["ytd_col"]).value
-                if isinstance(v_a, (int, float)):
-                    total_actual += v_a
-                if isinstance(v_y, (int, float)):
-                    total_ytd += v_y
-            ws_out.cell(row=total_row, column=sec["actual_col"],
-                        value=round(total_actual, 2) if total_actual else 0)
-            ws_out.cell(row=total_row, column=sec["ytd_col"],
-                        value=round(total_ytd, 2) if total_ytd else 0)
-            log(f"  TOTAL {MONTH_NAMES[month_num-1]} actual={total_actual:.2f} YTD={total_ytd:.2f}")
+            total_actual = sum(ws_out.cell(ridx, sec["actual_col"]).value or 0 for name, ridx in channel_row_map.items() if name.upper() not in SKIP_ROWS)
+            total_ytd = sum(ws_out.cell(ridx, sec["ytd_col"]).value or 0 for name, ridx in channel_row_map.items() if name.upper() not in SKIP_ROWS)
+            cell_t_act = ws_out.cell(row=t_ridx, column=sec["actual_col"], value=round(total_actual, 2))
+            cell_t_act.number_format = "#,##0.00"
+            cell_t_ytd = ws_out.cell(row=t_ridx, column=sec["ytd_col"], value=round(total_ytd, 2))
+            cell_t_ytd.number_format = "#,##0.00"
+            
+            # Recalculate totals for vs PY using existing PY sums
+            total_py = sum(ws_out.cell(ridx, sec["py_col"]).value or 0 for name, ridx in channel_row_map.items() if name.upper() not in SKIP_ROWS)
+            total_ytd_py = sum(ws_out.cell(ridx, sec["ytd_py_col"]).value or 0 for name, ridx in channel_row_map.items() if name.upper() not in SKIP_ROWS)
+            
+            if total_py:
+                t_pct_val = (total_actual - total_py) / total_py
+                cell_vs_py = ws_out.cell(row=t_ridx, column=sec["vs_py_col"], value=t_pct_val)
+                cell_vs_py.number_format = "0%"
+                if t_pct_val > 0:
+                    cell_vs_py.fill = PatternFill(start_color="E6F4EA", end_color="E6F4EA", fill_type="solid")
+                elif t_pct_val < 0:
+                    cell_vs_py.fill = PatternFill(start_color="FCE8E6", end_color="FCE8E6", fill_type="solid")
+            else:
+                ws_out.cell(row=t_ridx, column=sec["vs_py_col"]).value = None
+                
+            if total_ytd_py:
+                t_ytd_pct_val = (total_ytd - total_ytd_py) / total_ytd_py
+                cell_ytd_vs_py = ws_out.cell(row=t_ridx, column=sec["ytd_vs_py_col"], value=t_ytd_pct_val)
+                cell_ytd_vs_py.number_format = "0%"
+                if t_ytd_pct_val > 0:
+                    cell_ytd_vs_py.fill = PatternFill(start_color="E6F4EA", end_color="E6F4EA", fill_type="solid")
+                elif t_ytd_pct_val < 0:
+                    cell_ytd_vs_py.fill = PatternFill(start_color="FCE8E6", end_color="FCE8E6", fill_type="solid")
+            else:
+                ws_out.cell(row=t_ridx, column=sec["ytd_vs_py_col"]).value = None
 
     # ── Step 9: Recalculate % cont for all channels ──────────────────────────
+    # Find main total row for division
+    main_total_row = total_row
+    if not main_total_row and total_rows:
+        main_total_row = total_rows[0]
+
     for month_num in sorted_months:
         sec = all_sections[month_num]
-        total_actual = ws_out.cell(total_row, sec["actual_col"]).value if total_row else None
-        total_ytd    = ws_out.cell(total_row, sec["ytd_col"]).value    if total_row else None
+        total_actual = ws_out.cell(main_total_row, sec["actual_col"]).value if main_total_row else None
+        total_ytd    = ws_out.cell(main_total_row, sec["ytd_col"]).value    if main_total_row else None
 
         for ch_name, ridx in channel_row_map.items():
             if ch_name.upper() in SKIP_ROWS:
@@ -344,24 +358,32 @@ def write_offtake_summary(ws_out, ws_sample, all_orders, logger=None):
                 pct = round(row_actual / total_actual, 4)
                 ws_out.cell(row=ridx, column=sec["pct_cont_col"], value=pct)
                 ws_out.cell(row=ridx, column=sec["pct_cont_col"]).number_format = "0%"
+            else:
+                ws_out.cell(row=ridx, column=sec["pct_cont_col"]).value = None
 
             if isinstance(row_ytd, (int, float)) and isinstance(total_ytd, (int, float)) and total_ytd:
                 ytd_pct = round(row_ytd / total_ytd, 4)
                 ws_out.cell(row=ridx, column=sec["ytd_pct_col"], value=ytd_pct)
                 ws_out.cell(row=ridx, column=sec["ytd_pct_col"]).number_format = "0%"
+            else:
+                ws_out.cell(row=ridx, column=sec["ytd_pct_col"]).value = None
 
-    # ── Step 10: Validation ───────────────────────────────────────────────────
-    max_template_month = max(template_month_sections.keys())
-    if latest_sales_month > max_template_month:
-        log(f"INFO: Template had {MONTH_NAMES[max_template_month-1]} as last month. "
-            f"Created new blocks up to {MONTH_NAMES[latest_sales_month-1]}.")
-    log(f"Offtake Report Summary complete. Months populated: "
-        f"{[MONTH_NAMES[m-1] for m in sorted_months if m in sales_months or m in template_month_sections]}")
+    # ── Step 9.5: Add Zebra Striping ────────────────────────────────────────────
+    alt_fill = PatternFill(start_color="FAFAFA", end_color="FAFAFA", fill_type="solid")
+    data_rows = sorted([ridx for name, ridx in channel_row_map.items() if name.upper() not in SKIP_ROWS])
+    for i, ridx in enumerate(data_rows):
+        if i % 2 == 1:
+            for sec in all_sections.values():
+                for col in range(sec["section_start"], sec["section_start"] + SECTION_WIDTH):
+                    if col not in (sec["vs_py_col"], sec["ytd_vs_py_col"]):
+                        ws_out.cell(row=ridx, column=col).fill = alt_fill
+            # Also stripe the channel name column
+            ws_out.cell(row=ridx, column=1).fill = alt_fill
 
-    # ── Step 11: Auto-set column widths to prevent ##### display ─────────────
+    # ── Step 10: Auto-set column widths to prevent ##### display ─────────────
     # Currency columns (actual, target, YTD) → min 16; % cont → min 10
     for sec in all_sections.values():
-        currency_cols = [sec["actual_col"], sec["target_col"], sec["ytd_col"]]
+        currency_cols = [sec["actual_col"], sec["target_col"], sec["ytd_col"], sec["py_col"], sec["ytd_py_col"]]
         pct_cols = [sec["pct_cont_col"], sec["ytd_pct_col"]]
         for col in currency_cols:
             letter = ws_out.cell(1, col).column_letter
@@ -371,12 +393,16 @@ def write_offtake_summary(ws_out, ws_sample, all_orders, logger=None):
             letter = ws_out.cell(1, col).column_letter
             cur = ws_out.column_dimensions[letter].width or 0
             ws_out.column_dimensions[letter].width = max(cur, 10)
-    log("Column widths adjusted to prevent ##### display.")
 
-
-
-
-
+    # Freeze column A and Row 1
+    ws_out.freeze_panes = "B2"
+    
+    # ── Step 11: Cleanup leftover template errors ────────────────────────────
+    for r in range(1, ws_out.max_row + 1):
+        for c in range(1, ws_out.max_column + 1):
+            val = ws_out.cell(r, c).value
+            if isinstance(val, str) and val in ("#DIV/0!", "#N/A", "#VALUE!", "#REF!"):
+                ws_out.cell(r, c).value = None
 
 # ── SHEET 4: OFFTAKE PER SKU ─────────────────────────────────────────────────
 def write_offtake_per_sku(ws_out, ws_sample, all_orders, valid_skus):
@@ -419,13 +445,10 @@ def write_offtake_per_sku(ws_out, ws_sample, all_orders, valid_skus):
     for sku, month_data in sku_qty.items():
         row_idx = sku_row.get(sku)
         if not row_idx:
-            # Dynamically create new row for unmapped/new SKU
             last_row_idx += 1
             row_idx = last_row_idx
             sku_row[sku] = row_idx
             ws_out.cell(row=row_idx, column=1, value=sku)
-            
-            # Copy styling from the row above to maintain template appearance
             if last_row_idx > hdr_row + 1:
                 for col in range(1, ws_out.max_column + 1):
                     src_cell = ws_out.cell(row=last_row_idx - 1, column=col)
@@ -438,34 +461,61 @@ def write_offtake_per_sku(ws_out, ws_sample, all_orders, valid_skus):
                 existing = ws_out.cell(row=row_idx, column=col_idx).value
                 ws_out.cell(row=row_idx, column=col_idx, value=(existing or 0) + qty)
 
+    ws_out.freeze_panes = "B2"
+    alt_fill = PatternFill(start_color="FAFAFA", end_color="FAFAFA", fill_type="solid")
+    for row_idx in range(hdr_row + 1, last_row_idx + 1):
+        if row_idx % 2 == 0:
+            for col in range(1, ws_out.max_column + 1):
+                ws_out.cell(row=row_idx, column=col).fill = alt_fill
+
 
 # ── MAIN GENERATOR ───────────────────────────────────────────────────────────
-def generate_full_report(all_orders, template_path, output_path, logger=None):
-    if logger: logger("Loading template workbook...")
+def generate_full_report(all_orders, template_path, output_path, py_data=None, current_year=2026, logger=print):
+    def log(msg):
+        if logger: logger(msg)
+
+    log("Loading template workbook...")
     wb_sample = load_workbook(template_path)
     
     valid_skus = extract_valid_skus_from_template(wb_sample["Offtake Report Summary per sku"])
 
     wb_out = openpyxl.Workbook()
 
-    if logger: logger("Generating Daily Sales Summary...")
+    log("Generating Daily Sales Summary...")
     ws1 = wb_out.active
     ws1.title = "Daily Sales Summary"
     write_daily_sales(ws1, wb_sample["Daily Sales Summary "], all_orders)
 
-    if logger: logger("Generating Real Time Inventory Report...")
+    log("Generating Real Time Inventory Report...")
     ws2 = wb_out.create_sheet("Real Time Inventory Report")
     write_inventory(ws2, wb_sample["Real Time Inventory Report"])
 
-    if logger: logger("Generating Offtake Report Summary...")
+    latest_sales_month = max([o["date"].month for o in all_orders if o.get("date")], default=1)
+    
+    log("Generating Offtake Report Summary...")
     ws3 = wb_out.create_sheet("Offtake Report Summary")
-    write_offtake_summary(ws3, wb_sample["Offtake Report Summary"], all_orders, logger=logger)
+    
+    if py_data is None:
+        base_dir = os.path.dirname(template_path)
+        offtake_path = os.path.join(base_dir, "docs", f"{current_year} OFFTAKE REPORT.xlsx")
+        if os.path.exists(offtake_path):
+            try:
+                from .physical_parser import load_py_data
+                py_data = load_py_data(offtake_path, py_year=(current_year - 1))
+                log("Loaded historical PY data automatically.")
+            except Exception as e:
+                log(f"Warning: Could not auto-load PY data: {e}")
+                py_data = {}
+        else:
+            py_data = {}
+            
+    write_offtake_summary(ws3, wb_sample["Offtake Report Summary"], all_orders, py_data or {}, latest_sales_month, current_year, logger=log)
 
-    if logger: logger("Generating Offtake Report Summary per sku...")
+    log("Generating Offtake Report Summary per sku...")
     ws4 = wb_out.create_sheet("Offtake Report Summary per sku")
     write_offtake_per_sku(ws4, wb_sample["Offtake Report Summary per sku"], all_orders, valid_skus)
 
-    if logger: logger(f"Saving output to {output_path}...")
+    log(f"Saving output to {output_path}...")
     try:
         wb_out.save(output_path)
         if logger: logger("Save successful!")

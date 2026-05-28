@@ -20,6 +20,7 @@ class ValidationChecklist(QFrame):
         self.add_item("shopify_txns", "Shopify Transactions CSV")
         self.add_item("shopee", "Shopee Transaction Report")
         self.add_item("lazada", "Lazada Transaction Report")
+        self.add_item("offtake_report", "Offtake Report Excel")
         self.add_item("template", "Sample Reports Template")
         
         self.main_layout.addStretch()

@@ -7,6 +7,7 @@ def run_cli():
     from core.shopify_parser import process_shopify
     from core.shopee_parser import load_shopee
     from core.lazada_parser import load_lazada
+    from core.physical_parser import load_physical_channels, load_2025_data
     from core.report_generator import generate_full_report
     
     base_dir = os.getcwd()
@@ -19,13 +20,18 @@ def run_cli():
     template_xlsx = os.path.join(base_dir, "Sample Reports.xlsx")
     output_xlsx = os.path.join(base_dir, "Full_Sales_Report.xlsx")
     
+    offtake_xlsx = os.path.join(base_dir, "docs", "2026 OFFTAKE REPORT.xlsx")
+    if not os.path.exists(offtake_xlsx):
+        offtake_xlsx = os.path.join(base_dir, "2026 OFFTAKE REPORT.xlsx")
+    
     missing = []
     for path, name in [
         (orders_csv, "Shopify Orders"),
         (txns_csv, "Shopify Transactions"),
         (shopee_xlsx, "Shopee Report"),
         (lazada_xlsx, "Lazada Report"),
-        (template_xlsx, "Template")
+        (template_xlsx, "Template"),
+        (offtake_xlsx, "Offtake Report (2026 OFFTAKE REPORT.xlsx)")
     ]:
         if not os.path.exists(path):
             missing.append(name)
@@ -43,7 +49,11 @@ def run_cli():
     print("📂  Loading Lazada transactions…")
     lazada_orders = load_lazada(lazada_xlsx)
     
-    all_orders = shopify_orders + shopee_orders + lazada_orders
+    print("📂  Loading Offtake Report (Physical channels & TikTok)…")
+    physical_orders = load_physical_channels(offtake_xlsx)
+    py_data = load_2025_data(offtake_xlsx)
+    
+    all_orders = shopify_orders + shopee_orders + lazada_orders + physical_orders
     print(f"\n📊  Total combined orders: {len(all_orders)}")
     
     def cli_logger(msg):
@@ -53,6 +63,7 @@ def run_cli():
         all_orders=all_orders,
         template_path=template_xlsx,
         output_path=output_xlsx,
+        py_data=py_data,
         logger=cli_logger
     )
     
