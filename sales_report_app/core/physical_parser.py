@@ -2,6 +2,7 @@ import openpyxl
 from datetime import datetime
 import calendar
 from collections import defaultdict
+import os
 
 MONTH_MAP = {
     "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
@@ -252,16 +253,83 @@ def parse_monthly_sheet(ws, channel_name, current_year=2026):
             "status": "paid",
             "items": items
         })
-        
+            
     return transactions
 
-def load_physical_channels(filepath, current_year=2026):
+def _get_target_from_performance(filepath, current_year):
+    pass # Implementation later if needed
+
+
+# --- External Parser Integration ---
+
+import glob
+from .external_parsers import parse_tiktok_excel, parse_simula_excel, parse_frankie_excel, parse_pdf_report, parse_craft_central_html
+
+def load_physical_channels(filepath, current_year=2026, external_docs_dir=None):
     """
-    Load data from the OFFTAKE REPORT.xlsx.
-    Iterates over all sheets. Skips summary sheets and the previous year sheet.
-    Uses 'parse_daily_sheet' for specific channels, else 'parse_monthly_sheet'.
+    Load data from the external files in external_docs_dir first.
+    If not provided, defaults to docs/ in the same directory as filepath.
+    Then load any remaining channels from the OFFTAKE REPORT.xlsx template.
     """
     all_transactions = []
+    processed_channels = set()
+    
+    if external_docs_dir and os.path.exists(external_docs_dir):
+        base_dir = external_docs_dir
+    elif filepath and os.path.exists(filepath):
+        base_dir = os.path.join(os.path.dirname(filepath), "docs")
+    else:
+        base_dir = None
+        
+    # 1. TikTok
+    if base_dir:
+        # 1, 2, 3: Tiktok, Simula PH, Frankie and Friends (Excel Files)
+        excel_files = glob.glob(os.path.join(base_dir, "*.xlsx"))
+        for f in excel_files:
+            name_lower = os.path.basename(f).lower()
+            if "tiktok" in name_lower:
+                txns = parse_tiktok_excel(f, current_year)
+                all_transactions.extend(txns)
+                processed_channels.add("TikTok")
+                print(f"    Loaded TikTok from {os.path.basename(f)} ({len(txns)} txns)")
+            elif "simula" in name_lower:
+                txns = parse_simula_excel(f, "Simula PH", current_year)
+                all_transactions.extend(txns)
+                processed_channels.add("Simula PH")
+                print(f"    Loaded Simula PH from {os.path.basename(f)} ({len(txns)} txns)")
+            elif "frankie" in name_lower:
+                txns = parse_frankie_excel(f, "Frankie and Friends", current_year)
+                all_transactions.extend(txns)
+                processed_channels.add("Frankie and Friends")
+                print(f"    Loaded Frankie and Friends from {os.path.basename(f)} ({len(txns)} txns)")
+                
+        # 4. The Craft Central HTML
+        tcc_files = glob.glob(os.path.join(base_dir, "*Craft Central*.html"))
+        for f in tcc_files:
+            txns = parse_craft_central_html(f, current_year)
+            all_transactions.extend(txns)
+            processed_channels.add("Craft Central")
+            print(f"    Loaded Craft Central from {os.path.basename(f)} ({len(txns)} txns)")
+            
+        # 5. PDFs (9Matters, Common Room)
+        pdf_files = glob.glob(os.path.join(base_dir, "*.pdf"))
+        for f in pdf_files:
+            name_lower = os.path.basename(f).lower()
+            if "9matters" in name_lower:
+                txns = parse_pdf_report(f, "9 Matters", current_year)
+                all_transactions.extend(txns)
+                processed_channels.add("9 Matters")
+                print(f"    Loaded 9 Matters from {os.path.basename(f)} ({len(txns)} txns)")
+            elif "common room" in name_lower:
+                txns = parse_pdf_report(f, "Common Room", current_year)
+                all_transactions.extend(txns)
+                processed_channels.add("Common Room")
+                print(f"    Loaded Common Room from {os.path.basename(f)} ({len(txns)} txns)")
+
+    # 6. Fallback to OFFTAKE REPORT.xlsx
+    if not filepath or not os.path.exists(filepath):
+        return all_transactions
+
     try:
         wb = openpyxl.load_workbook(filepath, data_only=True)
         py_year = str(current_year - 1)
@@ -278,8 +346,10 @@ def load_physical_channels(filepath, current_year=2026):
             # Map sheetname to target channel
             channel_name = SHEET_CHANNEL_MAP.get(sheetname)
             if not channel_name:
-                # Fallback to sheetname if not mapped
                 channel_name = sheetname
+                
+            if channel_name in processed_channels:
+                continue # Skip because we loaded it from external files!
                 
             ws = wb[sheetname]
             
@@ -292,6 +362,6 @@ def load_physical_channels(filepath, current_year=2026):
             all_transactions.extend(txns)
             
     except Exception as e:
-        print(f"Error parsing physical channels from {filepath}: {e}")
+        print(f"Error parsing physical channels template {filepath}: {e}")
         
     return all_transactions

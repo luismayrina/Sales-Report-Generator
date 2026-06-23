@@ -20,16 +20,17 @@ class ValidationChecklist(QFrame):
         self.add_item("shopify_txns", "Shopify Transactions CSV")
         self.add_item("shopee", "Shopee Transaction Report")
         self.add_item("lazada", "Lazada Transaction Report")
-        self.add_item("offtake_report", "Offtake Report Excel")
+        self.add_item("offtake_report", "Offtake Report Excel", optional=True)
         self.add_item("template", "Sample Reports Template")
+        self.add_item("external_docs", "External Reports Folder", optional=True)
         
         self.main_layout.addStretch()
 
-    def add_item(self, key, name):
+    def add_item(self, key, name, optional=False):
         row = QHBoxLayout()
         row.setSpacing(10)
         
-        icon_lbl = QLabel("⚠️")
+        icon_lbl = QLabel("⚠️" if not optional else "📁")
         icon_lbl.setStyleSheet("font-size: 14px;")
         icon_lbl.setFixedWidth(20)
         
@@ -37,12 +38,13 @@ class ValidationChecklist(QFrame):
         text_vbox.setContentsMargins(0, 0, 0, 0)
         text_vbox.setSpacing(4)
         
-        name_lbl = QLabel(name)
+        name_lbl = QLabel(name + (" (Optional)" if optional else ""))
         # Inherits default text color from QWidget
         name_lbl.setWordWrap(True)
         
-        status_lbl = QLabel("Missing")
-        status_lbl.setObjectName("statusWarning")
+        status_lbl = QLabel("Missing" if not optional else "Not Provided")
+        if not optional:
+            status_lbl.setObjectName("statusWarning")
         status_lbl.setWordWrap(True)
         
         text_vbox.addWidget(name_lbl)
@@ -57,7 +59,8 @@ class ValidationChecklist(QFrame):
         self.items[key] = {
             "icon": icon_lbl,
             "status": status_lbl,
-            "name_lbl": name_lbl
+            "name_lbl": name_lbl,
+            "optional": optional
         }
 
     def update_item(self, key, path, status):
@@ -73,13 +76,21 @@ class ValidationChecklist(QFrame):
             item["status"].setText("Invalid file type")
             item["status"].setObjectName("statusMissing")
         else: # Empty
-            item["icon"].setText("⚠️")
-            item["status"].setText("Missing")
-            item["status"].setObjectName("statusWarning")
+            if item["optional"]:
+                item["icon"].setText("📁")
+                item["status"].setText("Not Provided")
+                item["status"].setObjectName("") # default
+            else:
+                item["icon"].setText("⚠️")
+                item["status"].setText("Missing")
+                item["status"].setObjectName("statusWarning")
             
         # Force style update
         item["status"].style().unpolish(item["status"])
         item["status"].style().polish(item["status"])
             
     def all_valid(self):
-        return all(item["status"].text() == "Ready" for item in self.items.values())
+        return all(
+            item["status"].text() == "Ready" or (item["optional"] and item["status"].text() == "Not Provided")
+            for item in self.items.values()
+        )

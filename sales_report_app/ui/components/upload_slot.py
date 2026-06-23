@@ -6,10 +6,11 @@ class UploadSlot(QWidget):
     # Signals emitted when file path changes or status changes
     file_changed = Signal(str, str, str) # key, path, status ("Valid", "Invalid", "Empty")
 
-    def __init__(self, key, label_text, helper_text, file_filter="*.*", parent=None):
+    def __init__(self, key, label_text, helper_text, file_filter="*.*", is_folder=False, parent=None):
         super().__init__(parent)
         self.key = key
         self.file_filter = file_filter
+        self.is_folder = is_folder
         self.current_path = ""
         self.status = "Empty" # Empty, Valid, Invalid
         
@@ -37,7 +38,7 @@ class UploadSlot(QWidget):
         
         # Text area
         self.text_layout = QVBoxLayout()
-        self.title_label = QLabel("Drop file here or browse")
+        self.title_label = QLabel("Drop folder here or browse" if is_folder else "Drop file here or browse")
         self.title_label.setObjectName("uploadSlotLabel")
         self.title_label.setWordWrap(True)
         
@@ -74,23 +75,39 @@ class UploadSlot(QWidget):
         self.current_path = path
         filename = os.path.basename(path)
         
-        # Basic validation (just extension for now, can be expanded)
-        ext = os.path.splitext(filename)[1].lower()
-        if ("csv" in self.file_filter.lower() and ext != ".csv") or \
-           ("xlsx" in self.file_filter.lower() and ext != ".xlsx"):
-            self.status = "Invalid"
-            self.status_icon.setText("❌")
-            self.title_label.setText(f"Invalid file: {filename}")
-            self.title_label.setObjectName("statusMissing")
-            self.title_label.style().unpolish(self.title_label)
-            self.title_label.style().polish(self.title_label)
+        if self.is_folder:
+            if not os.path.isdir(path):
+                self.status = "Invalid"
+                self.status_icon.setText("❌")
+                self.title_label.setText(f"Not a folder: {filename}")
+                self.title_label.setObjectName("statusMissing")
+                self.title_label.style().unpolish(self.title_label)
+                self.title_label.style().polish(self.title_label)
+            else:
+                self.status = "Valid"
+                self.status_icon.setText("✅")
+                self.title_label.setText(filename)
+                self.title_label.setObjectName("statusReady")
+                self.title_label.style().unpolish(self.title_label)
+                self.title_label.style().polish(self.title_label)
         else:
-            self.status = "Valid"
-            self.status_icon.setText("✅")
-            self.title_label.setText(filename)
-            self.title_label.setObjectName("statusReady")
-            self.title_label.style().unpolish(self.title_label)
-            self.title_label.style().polish(self.title_label)
+            # Basic validation (just extension for now, can be expanded)
+            ext = os.path.splitext(filename)[1].lower()
+            if ("csv" in self.file_filter.lower() and ext != ".csv") or \
+               ("xlsx" in self.file_filter.lower() and ext != ".xlsx"):
+                self.status = "Invalid"
+                self.status_icon.setText("❌")
+                self.title_label.setText(f"Invalid file: {filename}")
+                self.title_label.setObjectName("statusMissing")
+                self.title_label.style().unpolish(self.title_label)
+                self.title_label.style().polish(self.title_label)
+            else:
+                self.status = "Valid"
+                self.status_icon.setText("✅")
+                self.title_label.setText(filename)
+                self.title_label.setObjectName("statusReady")
+                self.title_label.style().unpolish(self.title_label)
+                self.title_label.style().polish(self.title_label)
             
         self.path_label.setText(path)
         self.btn_browse.setText("Change")
@@ -100,7 +117,10 @@ class UploadSlot(QWidget):
         self.file_changed.emit(self.key, self.current_path, self.status)
 
     def browse_file(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Select File", "", self.file_filter)
+        if self.is_folder:
+            path = QFileDialog.getExistingDirectory(self, "Select Directory", "")
+        else:
+            path, _ = QFileDialog.getOpenFileName(self, "Select File", "", self.file_filter)
         if path:
             self.set_file(path)
 
@@ -108,7 +128,7 @@ class UploadSlot(QWidget):
         self.current_path = ""
         self.status = "Empty"
         self.status_icon.setText("📁")
-        self.title_label.setText("Drop file here or browse")
+        self.title_label.setText("Drop folder here or browse" if self.is_folder else "Drop file here or browse")
         self.title_label.setObjectName("uploadSlotLabel")
         self.title_label.style().unpolish(self.title_label)
         self.title_label.style().polish(self.title_label)

@@ -49,18 +49,28 @@ class WorkerThread(QThread):
             self.progress_signal.emit(45)
             lazada_orders = load_lazada(self.paths['lazada'])
             
-            self.log_signal.emit("📂 Loading Offtake Report (Physical channels & TikTok)...")
+            self.log_signal.emit("📂 Loading Physical channels & TikTok...")
             self.progress_signal.emit(55)
             import re, os
-            offtake_filename = os.path.basename(self.paths['offtake_report'])
-            match = re.search(r'(20\d{2})', offtake_filename)
-            current_year = int(match.group(1)) if match else 2026
+            
+            # Default year extraction
+            current_year = 2026
+            if self.paths.get('offtake_report'):
+                offtake_filename = os.path.basename(self.paths['offtake_report'])
+                match = re.search(r'(20\d{2})', offtake_filename)
+                if match:
+                    current_year = int(match.group(1))
+            
             py_year = current_year - 1
             
             self.log_signal.emit(f"📅 Detected Reporting Year: {current_year} (PY: {py_year})")
 
             from core.physical_parser import load_physical_channels, load_py_data
-            physical_orders = load_physical_channels(self.paths['offtake_report'], current_year=current_year)
+            physical_orders = load_physical_channels(
+                self.paths['offtake_report'], 
+                current_year=current_year,
+                external_docs_dir=self.paths.get('external_docs')
+            )
             py_data = load_py_data(self.paths['offtake_report'], py_year=py_year)
             
             all_orders = shopify_orders + shopee_orders + lazada_orders + physical_orders
@@ -157,7 +167,8 @@ class MainWindow(QMainWindow):
             "shopee": "",
             "lazada": "",
             "offtake_report": "",
-            "template": ""
+            "template": "",
+            "external_docs": ""
         }
 
         # Shopify Card
@@ -183,7 +194,9 @@ class MainWindow(QMainWindow):
         # Offtake Report Card
         offtake_card = PlatformCard("Physical Stores & TikTok", "Upload the Offtake Report containing physical channel and TikTok sales data.")
         s6 = UploadSlot("offtake_report", "Offtake Report Excel", "Usually named [Year] OFFTAKE REPORT.xlsx", "Excel Files (*.xlsx)")
+        s7 = UploadSlot("external_docs", "External Reports Folder", "Folder containing PDF, HTML, Excel reports (Optional)", is_folder=True)
         offtake_card.add_slot(s6)
+        offtake_card.add_slot(s7)
         left_layout.addWidget(offtake_card)
 
         # Template Card
@@ -235,7 +248,7 @@ class MainWindow(QMainWindow):
         content_layout.addWidget(right_scroll, stretch=5)
 
         # Connect Signals
-        for slot in [s1, s2, s3, s4, s5, s6]:
+        for slot in [s1, s2, s3, s4, s5, s6, s7]:
             slot.file_changed.connect(self.on_file_changed)
 
         self.last_output_path = None

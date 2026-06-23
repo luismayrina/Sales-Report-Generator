@@ -553,19 +553,21 @@ def main():
             break
             
     if not offtake_xlsx:
-        print("❌ Error: Could not find any file ending with 'OFFTAKE REPORT.xlsx' in docs/ or root.")
-        return
+        print("⚠️ Warning: Could not find any file ending with 'OFFTAKE REPORT.xlsx'. PY data will be zero.")
+        offtake_filename = "Unknown"
+        current_year = 2026
+        py_year = 2025
+    else:
+        # Extract the current year from the filename
+        offtake_filename = os.path.basename(offtake_xlsx)
+        match = re.search(r'(20\d{2})', offtake_filename)
+        current_year = int(match.group(1)) if match else 2026
+        py_year = current_year - 1
 
-    # Extract the current year from the filename
-    offtake_filename = os.path.basename(offtake_xlsx)
-    match = re.search(r'(20\d{2})', offtake_filename)
-    current_year = int(match.group(1)) if match else 2026
-    py_year = current_year - 1
-
-    print(f"📂  Loading Offtake Report ({offtake_filename})...")
-    print(f"📅  Detected Reporting Year: {current_year} (PY: {py_year})")
-    
-    physical_orders = load_physical_channels(offtake_xlsx, current_year=current_year)
+        print(f"📂  Loading Offtake Report ({offtake_filename})...")
+        print(f"📅  Detected Reporting Year: {current_year} (PY: {py_year})")
+        
+    physical_orders = load_physical_channels(offtake_xlsx, current_year=current_year, external_docs_dir=os.path.join(BASE_DIR, "docs"))
     py_data = load_py_data(offtake_xlsx, py_year=py_year)
 
     all_orders = shopify_orders + shopee_orders + lazada_orders + physical_orders
