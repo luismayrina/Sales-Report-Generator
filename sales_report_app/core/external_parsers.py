@@ -163,9 +163,9 @@ def parse_simula_excel(filepath, store_name="Simula PH", current_year=2026):
             for m, items in monthly_items.items():
                 last_day = calendar.monthrange(current_year, m)[1]
                 dt = datetime(current_year, m, last_day)
-                total = sum(i[1] * i[2] for i in items)
-                order = create_synthetic_order(store_name, dt, total, items)
-                if order: txns.append(order)
+                for item in items:
+                    order = create_synthetic_order(store_name, dt, item[1] * item[2], [item])
+                    if order: txns.append(order)
             
     except Exception as e:
         print(f"Error parsing Simula Excel {filepath}: {e}")
@@ -253,7 +253,8 @@ def parse_pdf_report(filepath, store_name, current_year=2026):
                             if qty == 0: qty = 1
                             amount = clean_amount(row[-1]) 
                             item_price = amount / qty if qty > 0 else amount
-                            items.append((item_name, int(qty), item_price))
+                            order = create_synthetic_order(store_name, dt, amount, [(item_name, int(qty), item_price)])
+                            if order: txns.append(order)
                             
             elif store_name == "Common Room":
                 for page in pdf.pages:
@@ -268,12 +269,9 @@ def parse_pdf_report(filepath, store_name, current_year=2026):
                             if qty == 0: qty = 1
                             amount = clean_amount(match.group(3))
                             item_price = amount / qty if qty > 0 else amount
-                            items.append((prod_name, int(qty), item_price))
-
-        if items:
-            total_amount = sum(i[1] * i[2] for i in items)
-            order = create_synthetic_order(store_name, dt, total_amount, items)
-            if order: txns.append(order)
+                            
+                            order = create_synthetic_order(store_name, dt, amount, [(prod_name, int(qty), item_price)])
+                            if order: txns.append(order)
             
     except Exception as e:
         print(f"Error parsing PDF {filepath}: {e}")
@@ -303,6 +301,9 @@ def parse_craft_central_html(filepath, current_year=2026):
                     
             if not month: month = 1
             
+            last_day = calendar.monthrange(current_year, month)[1]
+            dt = datetime(current_year, month, last_day)
+            
             tables = soup.find_all('table')
             
             for table in tables:
@@ -317,18 +318,12 @@ def parse_craft_central_html(filepath, current_year=2026):
                         amount = clean_amount(cols[3])
                         if qty > 0 and amount > 0:
                             item_price = amount / qty
-                            items.append((prod_name, int(qty), item_price))
+                            order = create_synthetic_order("Craft Central", dt, amount, [(prod_name, int(qty), item_price)])
+                            if order: txns.append(order)
                             found_in_table = True
                 
                 if found_in_table:
                     break # Stop after parsing the first table with actual data
-                            
-        if items:
-            total_amount = sum(i[1] * i[2] for i in items)
-            last_day = calendar.monthrange(current_year, month)[1]
-            dt = datetime(current_year, month, last_day)
-            order = create_synthetic_order("Craft Central", dt, total_amount, items)
-            if order: txns.append(order)
             
     except Exception as e:
         print(f"Error parsing Craft Central HTML {filepath}: {e}")

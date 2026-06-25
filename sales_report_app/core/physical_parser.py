@@ -348,7 +348,7 @@ def load_physical_channels(filepath, current_year=2026, external_docs_dir=None):
             if not channel_name:
                 channel_name = sheetname
                 
-            if channel_name in processed_channels:
+            if channel_name.lower() in [c.lower() for c in processed_channels]:
                 continue # Skip because we loaded it from external files!
                 
             ws = wb[sheetname]
