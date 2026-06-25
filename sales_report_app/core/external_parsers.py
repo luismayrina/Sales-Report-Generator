@@ -122,16 +122,38 @@ def parse_simula_excel(filepath, store_name="Simula PH", current_year=2026):
     try:
         wb = openpyxl.load_workbook(filepath, data_only=True)
         for ws in wb.worksheets:
-            header_row_idx = 2
+            header_row_idx = None
+            date_idx, qty_idx, prod_idx, amount_idx, remarks_idx = None, None, None, None, None
+            
+            for row_idx, row in enumerate(ws.iter_rows(min_row=1, values_only=True), 1):
+                if not row or not any(row): continue
+                row_strs = [str(c).strip().lower() for c in row if c is not None]
+                if "date" in row_strs and "product" in row_strs:
+                    header_row_idx = row_idx
+                    for i, c in enumerate(row):
+                        if not c: continue
+                        val = str(c).strip().lower()
+                        if val == "date": date_idx = i
+                        elif "qty" in val: qty_idx = i
+                        elif val == "product": prod_idx = i
+                        elif "payable" in val or "amount" in val: amount_idx = i
+                        elif "remarks" in val: remarks_idx = i
+                    break
+            
+            if header_row_idx is None:
+                date_idx, qty_idx, prod_idx, amount_idx, remarks_idx = 0, 1, 2, 3, 4
+                header_row_idx = 2
+                
             monthly_items = {} 
             
             for row in ws.iter_rows(min_row=header_row_idx + 1, values_only=True):
                 if not row or not any(row): continue
                 
-                date_val = row[0]
-                qty_val = row[1]
-                prod_val = row[2]
-                amount_val = row[3]
+                date_val = row[date_idx] if date_idx is not None and date_idx < len(row) else None
+                qty_val = row[qty_idx] if qty_idx is not None and qty_idx < len(row) else None
+                prod_val = row[prod_idx] if prod_idx is not None and prod_idx < len(row) else None
+                amount_val = row[amount_idx] if amount_idx is not None and amount_idx < len(row) else None
+                remarks_val = row[remarks_idx] if remarks_idx is not None and remarks_idx < len(row) else None
                 
                 if not date_val or not prod_val: continue
                 
@@ -158,13 +180,18 @@ def parse_simula_excel(filepath, store_name="Simula PH", current_year=2026):
                     if month not in monthly_items:
                         monthly_items[month] = []
                     item_price = amount / qty if qty > 0 else amount
-                    monthly_items[month].append((str(prod_val).strip(), int(qty), item_price))
+                    
+                    order_no = str(remarks_val).strip() if remarks_val else None
+                    if order_no == "None": order_no = None
+                    
+                    monthly_items[month].append((str(prod_val).strip(), int(qty), item_price, order_no))
                     
             for m, items in monthly_items.items():
                 last_day = calendar.monthrange(current_year, m)[1]
                 dt = datetime(current_year, m, last_day)
                 for item in items:
-                    order = create_synthetic_order(store_name, dt, item[1] * item[2], [item])
+                    prod, qty, price, order_no = item
+                    order = create_synthetic_order(store_name, dt, qty * price, [(prod, qty, price)], order_no=order_no)
                     if order: txns.append(order)
             
     except Exception as e:
