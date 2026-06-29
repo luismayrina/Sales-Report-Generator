@@ -27,7 +27,6 @@ app_settings.json
 *.xlsx
 *.csv
 ~$*.xlsx
-docs/
 
 # Legacy, Debug, and Test Scripts
 debug_*.py
