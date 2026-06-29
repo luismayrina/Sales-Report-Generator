@@ -1,0 +1,43 @@
+# Python compiler files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Local virtual environment
+.venv/
+venv/
+env/
+
+# PyInstaller build files
+build/
+dist/
+*.spec
+
+# Application settings
+app_settings.json
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+
+# Data files and generated reports
+*.xlsx
+*.csv
+~$*.xlsx
+docs/
+
+# Legacy, Debug, and Test Scripts
+debug_*.py
+inspect_*.py
+test_*.py
+generate_report.py
+
+# System & AI generated folders
+.claude/
+.gitnexus/
+AGENTS.md
+CLAUDE.md
+past_conversation_summary.md
