@@ -1,6 +1,6 @@
 #!/bin/bash
 echo "Building Sales Report App for macOS..."
-pyinstaller --noconfirm --windowed \
+python3 -m PyInstaller --noconfirm --windowed \
     --name "Sales Report Generator" \
     ../app.py
 
