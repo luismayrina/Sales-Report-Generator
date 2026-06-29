@@ -26,6 +26,10 @@ app_settings.json
 # Data files and generated reports
 *.xlsx
 *.csv
+!docs/**/*.xlsx
+!docs/**/*.csv
+!docs/*.xlsx
+!docs/*.csv
 ~$*.xlsx
 
 # Legacy, Debug, and Test Scripts
