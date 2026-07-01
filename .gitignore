@@ -41,6 +41,7 @@ generate_report.py
 # System & AI generated folders
 .claude/
 .gitnexus/
+.agents/
 AGENTS.md
 CLAUDE.md
 past_conversation_summary.md
