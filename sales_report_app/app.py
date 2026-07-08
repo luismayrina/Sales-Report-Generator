@@ -7,7 +7,7 @@ def run_cli():
     from core.shopify_parser import process_shopify
     from core.shopee_parser import load_shopee
     from core.lazada_parser import load_lazada
-    from core.physical_parser import load_physical_channels, load_2025_data
+    from core.physical_parser import load_physical_channels, load_py_data
     from core.report_generator import generate_full_report
     
     base_dir = os.getcwd()
@@ -51,7 +51,7 @@ def run_cli():
     
     print("📂  Loading Offtake Report (Physical channels & TikTok)…")
     physical_orders = load_physical_channels(offtake_xlsx)
-    py_data = load_2025_data(offtake_xlsx)
+    py_data = load_py_data(offtake_xlsx)
     
     all_orders = shopify_orders + shopee_orders + lazada_orders + physical_orders
     print(f"\n📊  Total combined orders: {len(all_orders)}")
